@@ -142,6 +142,16 @@ active feature development.
   contact, block/review, stage-name, place-chat and direct-message workflows no longer live inside
   the monolithic `setupEventHandlers`; session/navigation ownership remains in the app. Together
   these final slices ratchet the coordinator to 9,588 lines.
+  **Twelfth through seventeenth architecture slices (2026-11-27):** the remaining promoted
+  boundaries are now explicit. `core/talk-broadcast-effects.ts` owns Talk audience, batching,
+  progress and delivery ordering; `web/app/talk-event-handlers.ts` owns authoring and Talk command
+  registration. `core/room-session-effects.ts` owns pure room/travel transitions while the web room
+  adapter retains transport and navigation ports. TechSupport inbox commands and delegate/invite
+  administration have separate registration surfaces. `device-graph-host-facade.ts` centralizes
+  optional-core fallbacks, live stats, conversation reads, delivery writes and coalesced tab
+  snapshots. Connectivity, direct-conversation/media, Gun forwarding and browser/native lifecycle
+  wiring are feature registrars instead of composition-root policy. The coordinator ratchet is now
+  8,732 lines; teardown implementation remains independently owned.
 
 - [ ] **OPEN-81 — Match collection outings: prepare Talks, walk through a mall or ride transit,
   collect replies, then review the few people who matter most (started 2026-10-20).** The transport

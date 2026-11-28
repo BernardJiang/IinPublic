@@ -64,6 +64,16 @@ import type { MapMatchSource } from '../../shared/map-matches';
 import { UIManager } from '../ui/ui-manager';
 import { registerProfileEventHandlers } from './profile-event-handlers';
 import { registerMessagingEventHandlers } from './messaging-event-handlers';
+import { registerTalkEventHandlers } from './talk-event-handlers';
+import { registerRoomEventHandlers, type CustomRoomRequest } from './room-event-handlers';
+import {
+  registerTechSupportDelegateHandlers,
+  registerTechSupportInboxHandlers,
+} from './techsupport-event-handlers';
+import { DeviceGraphHostFacade } from './device-graph-host-facade';
+import { registerConnectivityEventHandlers } from './connectivity-event-handlers';
+import { registerConversationSessionHandlers } from './conversation-session-handlers';
+import { HostLifecycleHandlers, registerGunUiForwarding } from './host-lifecycle-handlers';
 import type { BroadcastAudiencePreview } from '../ui/broadcast-audience-preview';
 import { LocationPrivacy } from '../../shared/location';
 import { isPlaceRoomId, parseAnchorCell } from '../../shared/place-rooms';
@@ -94,7 +104,7 @@ import {
 import { pickLatestTalkIdFromIncomingCluster } from '../../shared/incoming-talk-ids';
 import { graphAnswerHistoryTalkIds, refreshGraphAnswerHistory, setGraphAnswerHistorySource } from '../ui/graph-answer-history';
 import { getFlatAnswerHistory, getTalkContentKey, setAnswerHistoryCore, setFlatAnswerHistory, upsertFlatAnswerHistory } from '../ui/answer-history-storage';
-import { FlowCapture, TalkAutofix, buildRevisedTalkDraft, checkIfMatch } from '../../shared/talk-engine';
+import { checkIfMatch } from '../../shared/talk-engine';
 import { computeTalkIdFromTalkData } from '../../shared/cid';
 import { getDevStageZeroMaxGlobalMembers, isDevStageZero, isDevStageZeroSelfHeal } from '../dev-stage-env';
 import { purgeDevStageZeroGraph } from '../dev-stage-seeds';
@@ -232,11 +242,13 @@ import { ConversationProjectionEffects } from '../../core/conversation-projectio
 import { ResponseIngestEffects } from '../../core/response-ingest-effects';
 import { ResponseSubmitEffects } from '../../core/response-submit-effects';
 import { NearbyLifecycleEffects } from '../../core/nearby-lifecycle-effects';
+import { TalkBroadcastEffects } from '../../core/talk-broadcast-effects';
+import { RoomSessionEffects, type RoomSessionState } from '../../core/room-session-effects';
 import { planDealFinalization } from '../../core/deal-finalization';
 import { drainMailboxEnvelopes } from '../../core/mailbox-drain';
 import { MailboxDeliveryService, mailboxEnvelopeId } from '../../core/mailbox-delivery';
 import { authorOutcomeFor, exchangeRecordFor } from '../../core/exchange-recording';
-import { attachmentShareKeyPayload, attachmentSharePayload, formatAttachmentShareMessageText, type AttachmentShareMessagePayload } from '../../core/attachment-share';
+import { attachmentShareKeyPayload, attachmentSharePayload, type AttachmentShareMessagePayload } from '../../core/attachment-share';
 import { AttachmentShareEffects, type MailboxAttachmentSharePayload } from '../../core/attachment-share-effects';
 import { decodePairResponse, encryptPairResponse, firstKeyHint, pairSecret, type PairResponseContent, type SeaPort } from '../../core/pair-response-crypto';
 import type { SeaSigningPair } from '../../shared/p2p-runtime';
@@ -248,7 +260,7 @@ import { OfferBatcher } from '../services/offer-batcher';
 import { filterVerifiedSupportMessages } from '../ui/verified-support-messages';
 import { GraphWaitingOffers } from '../services/graph-waiting-offers';
 import { GraphLinkBridge } from '../services/graph-link-bridge';
-import type { GraphConversationMessage, GraphEvent, GraphTabSnapshot } from '../../core/device-graph/sync/graph-host';
+import type { GraphConversationMessage, GraphEvent } from '../../core/device-graph/sync/graph-host';
 import { setGraphTabSnapshot } from '../services/graph-tab-projection';
 import { restoreCreatorReplyFilterState } from '../ui/creator-replies-view';
 import { connectCoreCollections, dealTalkByConversationView, needKeyByConversationView } from '../services/core-views';
@@ -365,7 +377,7 @@ export class IinPublicApp {
   );
   private currentUser?: User;
   private currentLocation?: GPSCoordinate;
-  private currentChatroomId?: string;
+  private currentChatroomId: string | undefined;
   /** Gun .map().on may replay the same response node; avoid duplicate match UI/conversations. */
   private processedTalkResponseKeys = new Set<string>();
   private subscribedMemberCountRoomIds = new Set<string>();
@@ -458,10 +470,18 @@ export class IinPublicApp {
   private readonly responseIngestEffects: ResponseIngestEffects;
   /** Portable responder-side commit/fanout orchestration; crypto, graph and UI are host ports. */
   private readonly responseSubmitEffects: ResponseSubmitEffects;
+  /** Portable Talk audience/batching/delivery orchestration; transports and UI remain host ports. */
+  private readonly talkBroadcastEffects: TalkBroadcastEffects;
+  private readonly roomSessionEffects = new RoomSessionEffects({
+    isNearby: isNearbyRoomId,
+    isPlace: isPlaceRoomId,
+  });
+  private readonly deviceGraphHost: DeviceGraphHostFacade;
+  private get coreRequest(): CoreRequester | null {
+    return this.deviceGraphHost.current();
+  }
   private conversationPreviewUnsubscribers = new Map<string, () => void>();
   /** Coalesce tab-projection refreshes caused by bursts of events/roster/message imports. */
-  private graphTabRefresh: Promise<void> | null = null;
-  private graphTabRefreshAgain = false;
   private peerEpubByUserId = new Map<string, string>();
   private talkLedgerSuppressionDisabledForE2e = false;
   private talkSendQuotaUnlimitedForE2e = false;
@@ -1131,6 +1151,14 @@ export class IinPublicApp {
       void this.deviceSyncService.enqueuePreferencesChange(user.pub || '', user.talkFilters);
     });
     this.uiManager = new UIManager();
+    this.deviceGraphHost = new DeviceGraphHostFacade({
+      applyTabSnapshot: (snapshot) => {
+        setGraphTabSnapshot(snapshot);
+        if (typeof window !== 'undefined') (window as any).__iinpublic_graph_tab_snapshot = () => snapshot;
+      },
+      log: (message, error) => console.warn(message, error),
+      repeatGapMs: GRAPH_TAB_REPEAT_GAP_MS,
+    });
     this.nearbyLifecycle = new NearbyLifecycleEffects({
       identityKey: () => {
         const user = this.currentUser;
@@ -1328,9 +1356,7 @@ export class IinPublicApp {
           state: 'sent',
         },
       }),
-      isRetracted: async (talkId) => this.coreRequest
-        ? (await this.coreRequest({ name: 'graph.deletedAt', talkId }).catch(() => null)) !== null
-        : false,
+      isRetracted: async (talkId) => (await this.deviceGraphHost.deletedAt(talkId)) !== null,
       otherSenders: (talkId, authorId) => this.otherSendersOf(talkId, authorId),
       refreshExchangeState: () => refreshExchangeState(),
       recordAnsweredLedger: ({ talkId, responseId, outcome }) => this.ledgerEmit(
@@ -1387,6 +1413,60 @@ export class IinPublicApp {
         }
       },
     });
+    this.talkBroadcastEffects = new TalkBroadcastEffects({
+      currentUserId: () => this.currentUser?.id,
+      currentRoomId: () => this.chatroomService.getCurrentChatroomId(),
+      broadcastableTalkIds: () => this.uiManager.getBroadcastableTalkIds(),
+      resolveReceivers: (chatroomId, members) => this.resolveBroadcastReceivers(chatroomId, members),
+      resolveTalk: async (talkId) => {
+        const local = this.uiManager.getBroadcastTalkPayload(talkId);
+        return local || this.talkService.getTalkWithRetry(talkId, { attempts: 15, gapMs: 100 });
+      },
+      isExpired: (talk) => this.isTalkExpiredForDelivery(talk),
+      deliver: (talkId, talk, receivers, eligibleIds, onDelivered, batched) =>
+        this.deliverTalkToReceiversOverMesh(talkId, talk, receivers, eligibleIds, onDelivered, batched),
+      recordCollectionDelivery: async ({ talkIds, peerIds, talkReceiverIds }) => {
+        const roomId = this.chatroomService.getCurrentChatroomId();
+        const activeCollection = roomId ? this.ensureMatchCollectionSession(roomId) : undefined;
+        const location = activeCollection && roomId
+          ? await this.matchCollectionSendLocation(roomId)
+          : undefined;
+        const peerPoints = activeCollection
+          ? Object.fromEntries(this.nearbyV3?.service.entries().map((entry) => [entry.card.userId, entry.card.point]) ?? [])
+          : undefined;
+        recordMatchCollectionDelivery({
+          talkIds,
+          peerIds,
+          ...(talkReceiverIds ? { talkReceiverIds } : {}),
+          ...(location ? { location } : {}),
+          ...(peerPoints ? { peerPoints } : {}),
+        });
+      },
+      syncBackgroundAgent: () => this.syncNativeBackgroundAgent(),
+      markInFlight: (talkIds) => this.markTalkBroadcastsInFlight(talkIds),
+      startProgress: (roomId, talkIds, total, recipientIds) =>
+        this.startNearbyBroadcastProgress(roomId, talkIds, total, recipientIds),
+      emitBroadcast: (talkId, recipientCount, chatroomIds) => this.ledgerEmit(
+        InteractionKind.TALK_BROADCAST,
+        { talkId, recipientCount, chatroomIds },
+      ),
+      setBulkAck: (sent, total) => this.uiManager.setBroadcastBulkAck(sent, total),
+      notify: (kind, detail, sent, total) => {
+        if (kind === 'progress') this.uiManager.showNotification(this.uiManager.formatBroadcastInProgress(), 'info');
+        else if (kind === 'success') this.uiManager.showNotification(this.uiManager.formatBroadcastSent(sent ?? 0, total ?? 0), 'success');
+        else if (kind === 'failure') this.uiManager.showNotification(this.uiManager.formatBroadcastFailed(detail || 'unknown error'), 'error');
+        else if (kind === 'no-room') this.uiManager.showNotification(this.uiManager.formatBroadcastNoChatroom(), 'error');
+        else if (kind === 'group-success') this.uiManager.showNotification(this.uiManager.formatBroadcastGroupSent(), 'success');
+        else this.uiManager.showNotification(this.uiManager.formatBroadcastFailed(detail || 'delivery failed'), 'error');
+      },
+      log: (level, message, error) => {
+        if (level === 'error') console.error(message, error);
+        else if (level === 'warn') console.warn(message);
+        else console.info(message);
+      },
+      batchSize: BATCH_MAX_ITEMS,
+      excludedUserIds: [TECHSUPPORT_ROOT_USER_ID],
+    });
     this.releaseEarlyUiEvents = bufferEmitsUntilReleased(this.uiManager);
     // A link change can move my Nearby count key; that audience refresh runs in the background so
     // the linked-devices dialog never waits on the hub (stage2/73 timed out on "Removed").
@@ -1420,14 +1500,6 @@ export class IinPublicApp {
         return result;
       },
       isLinked: (pub) => this.identityLinkService.isLinked(pub),
-    });
-    this.uiManager.setSupportDelegateInviteHooks({
-      createInvite: () => this.handleCreateTechSupportDelegateInvite(),
-      submitInviteCode: (code) => this.handleSubmitTechSupportDelegateRequest(code),
-      previewInviteTarget: (userId) => this.previewTargetedDelegateInviteTarget(userId),
-      sendTargetedInvite: (userId) => this.handleSendTargetedDelegateInvite(userId),
-      acceptTargetedInvite: () => this.handleRespondToTargetedDelegateInvite(true),
-      declineTargetedInvite: () => this.handleRespondToTargetedDelegateInvite(false),
     });
     this.uiManager.setDeviceSyncHooks({
       stateFor: (pub) => this.deviceSyncService.peerState(pub),
@@ -6051,15 +6123,7 @@ export class IinPublicApp {
    * recovery, and the response still goes out over the mesh or the mailbox without it.
    */
   private async coreDelivery(request: Extract<CoreRequest, { name: 'delivery.putSentResponse' | 'delivery.record' }>): Promise<void> {
-    if (!this.coreRequest) {
-      console.warn(`[delivery] device core unavailable, not stored: ${request.name}`);
-      return;
-    }
-    try {
-      await this.coreRequest(request);
-    } catch (error) {
-      console.warn(`[delivery] device core write failed: ${request.name}`, error);
-    }
+    await this.deviceGraphHost.writeDelivery(request);
   }
 
   /**
@@ -6072,7 +6136,6 @@ export class IinPublicApp {
    * secret and the node answers — copying the WebView worker's core over the first time — otherwise
    * the web worker. Resolved once at start-up, before any log loads.
    */
-  private coreRequest: CoreRequester | null = null;
   /** Offers made in one moment go to the core as one `graph.offerMany` (step 4, 2026-11-16). */
   private offerBatcher: OfferBatcher | null = null;
   /** Offers of one broadcast of several Talks (both hosts), one `graph.offerMany` per batch. */
@@ -6094,7 +6157,7 @@ export class IinPublicApp {
         console.warn('[core] copying the WebView core to the node failed (retried next start):', error);
       });
     }
-    this.coreRequest = node ?? worker;
+    this.deviceGraphHost.connect(node ?? worker);
     // Only toward an embedded node, whose page reaches it over the network (the WebView's
     // connection limit, 2026-11-16). The web worker answers over postMessage, where one combined
     // request gains nothing and makes each caller wait for the whole batch: that delay made a taxi
@@ -6398,9 +6461,6 @@ export class IinPublicApp {
     },
   });
 
-  /** The newest Talks-tab count request (`needTalkStats`); older answers are dropped. */
-  private talkStatsRequest = 0;
-
   /** The people the mesh should link to for my log: owed entries, and offers waiting for keys. */
   private pushGraphOwedToMesh(): void {
     this.peerMeshService?.setGraphOwed([...new Set([...this.graphOwedPeers, ...this.graphWaiting.peers()])]);
@@ -6410,24 +6470,9 @@ export class IinPublicApp {
   /** The Talks list's response counts for these Talks of mine, from the device graph (`ix/outcome`). */
   private async applyTalkStats(talkIds: string[]): Promise<void> {
     if (!talkIds.length) return;
-    // Only the newest read's counts are shown (stage5 HR route: an older read answering late left a
-    // row an answer short).
-    const request = ++this.talkStatsRequest;
-    const outcomes = this.coreRequest
-      ? await this.coreRequest({ name: 'graph.outcomes', talkIds }).catch(() => ({} as Record<string, Record<string, string>>))
-      : {};
-    if (request !== this.talkStatsRequest) return;
-    const statsMap: Record<string, { responses: number; matches: number; ignores: number }> = {};
-    for (const talkId of talkIds) {
-      const rows = Object.values(outcomes[talkId] ?? {});
-      statsMap[talkId] = {
-        responses: rows.length,
-        matches: rows.filter((outcome) => outcome === 'matched').length,
-        ignores: rows.filter((outcome) => outcome === 'ignored').length,
-      };
-    }
+    const statsMap = await this.deviceGraphHost.talkStats(talkIds);
+    if (!statsMap) return;
     this.uiManager.setTalkStats(statsMap);
-    // Refresh status bar so match count is shown
     this.refreshStatusBar();
   }
 
@@ -6438,25 +6483,7 @@ export class IinPublicApp {
    * the five-phone starter tags, 2026-11-21).
    */
   private refreshGraphTabSnapshot(): Promise<void> {
-    if (this.graphTabRefresh) { this.graphTabRefreshAgain = true; return this.graphTabRefresh; }
-    const core = this.coreRequest;
-    if (!core) return Promise.resolve();
-    const readOnce = () => core({ name: 'graph.tabSnapshot' })
-      .then((next: GraphTabSnapshot) => {
-        setGraphTabSnapshot(next);
-        if (typeof window !== 'undefined') (window as any).__iinpublic_graph_tab_snapshot = () => next;
-      })
-      .catch((error) => console.warn('[graph] tab projection refresh failed:', error));
-    const refresh = (async () => {
-      for (;;) {
-        this.graphTabRefreshAgain = false;
-        await readOnce();
-        if (!this.graphTabRefreshAgain) break;
-        await new Promise((resolve) => setTimeout(resolve, GRAPH_TAB_REPEAT_GAP_MS));
-      }
-    })().finally(() => { if (this.graphTabRefresh === refresh) this.graphTabRefresh = null; });
-    this.graphTabRefresh = refresh;
-    return refresh;
+    return this.deviceGraphHost.refreshTabSnapshot();
   }
 
   private async startGraphLinks(): Promise<void> {
@@ -8006,55 +8033,168 @@ export class IinPublicApp {
     );
   }
 
+  private roomSessionState(): RoomSessionState {
+    return {
+      currentRoomId: this.currentChatroomId,
+      travelModeActive: this.travelModeActive,
+      travelHomeRoomId: this.travelHomeChatroomId,
+      travelRoomId: this.travelChatroomId,
+      travelNearbyPoint: this.travelNearbyPoint,
+      pendingNearbyTravel: this.pendingNearbyTravel,
+    };
+  }
+
+  private commitRoomSessionState(state: RoomSessionState): void {
+    this.currentChatroomId = state.currentRoomId;
+    this.travelModeActive = state.travelModeActive;
+    this.travelHomeChatroomId = state.travelHomeRoomId;
+    this.travelChatroomId = state.travelRoomId;
+    this.travelNearbyPoint = state.travelNearbyPoint;
+    this.pendingNearbyTravel = state.pendingNearbyTravel;
+  }
+
+  private subscribeRoomSession(roomId: string): void {
+    this.subscribeToMessages(roomId);
+    this.chatroomService.subscribeToMembers(roomId, (members) => {
+      if (!this.currentUser) return;
+      this.harvestRosterEpubs(members);
+      this.observeNearbyRoomRoster(roomId, members);
+      this.uiManager.updateChatroomMembers(members, this.currentUser.id);
+      this.syncPeerMeshRoom(roomId, members);
+      this.uiManager.updateStatusBar(
+        this.currentUser.stageName,
+        this.getChatroomDisplayName(roomId),
+        this.countRoomMembers(members),
+        this.uiManager.getTotalMatches(),
+      );
+    });
+  }
+
+  private async createCustomRoom(payload: CustomRoomRequest): Promise<void> {
+    if (!this.currentUser) return;
+    if (!this.locationConfirmed || !this.currentLocation) {
+      this.uiManager.showNotification(this.uiManager.formatChatroomCreateFailed('location required'), 'error');
+      return;
+    }
+    const anchorCell = LocationPrivacy.blurLocation(this.currentLocation).region;
+    const anchor = parseAnchorCell(anchorCell);
+    const pair = this.gunService.getStoredPair();
+    if (!anchor || !pair?.pub || !pair?.priv) {
+      this.uiManager.showNotification(this.uiManager.formatChatroomCreateFailed('signing identity unavailable'), 'error');
+      return;
+    }
+    try {
+      const descriptor = await createSignedPlaceDescriptor({
+        name: payload.name,
+        placeType: payload.type,
+        ...(payload.description != null ? { description: payload.description } : {}),
+        location: { latitude: anchor.latitude, longitude: anchor.longitude },
+        pair,
+      });
+      const response = await fetchWithTimeout(`${this.getBackendApiBase()}/api/chatrooms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: payload.name,
+          type: payload.type,
+          createdBy: this.currentUser.id,
+          anchorCell,
+          descriptor,
+          ...(payload.description != null ? { description: payload.description } : {}),
+          ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
+        }),
+      }, 10_000);
+      const text = await response.text();
+      let created: any = null;
+      if (text) {
+        try { created = JSON.parse(text); } catch { created = null; }
+      }
+      if (!response.ok) {
+        this.showPlaceCreateRefusal(response.status, text);
+        return;
+      }
+      const createdId = String(created?.id || '').trim();
+      if (createdId) {
+        this.uiManager.upsertCustomChatroomFromServer({
+          id: createdId,
+          name: String(created?.name || payload.name),
+          type: created?.type === 'business' ? 'business' : 'custom',
+          description: String(created?.description || payload.description || ''),
+          createdBy: String(created?.createdBy || this.currentUser.id),
+          ...(created?.createdAt != null ? { createdAt: created.createdAt } : {}),
+          ...(created?.businessInfo != null || payload.businessInfo != null
+            ? { businessInfo: created?.businessInfo ?? payload.businessInfo! }
+            : {}),
+          ...(created?.location != null ? { location: created.location } : {}),
+        });
+        this.uiManager.showChatroomDetail(createdId);
+      }
+      void this.refreshCustomChatroomsFromServer().then(() => this.subscribeToAllChatroomMemberCounts());
+      this.uiManager.showNotification(this.uiManager.formatChatroomCreated(created?.name || payload.name), 'success');
+    } catch (error) {
+      this.uiManager.showNotification(this.uiManager.formatChatroomCreateFailed((error as Error).message), 'error');
+    }
+  }
+
   private setupEventHandlers(): void {
     // Handle UI events
 
-    this.uiManager.on('contactsCapChanged', () => this.scheduleContactsPrune(0));
-    this.uiManager.on('connectivitySettingsChanged', (settings: ConnectivitySettings) => {
-      const mesh = this.ensurePeerMeshService();
-      mesh?.updateForwardingSettings(settings.forwarding);
-      if (mesh) this.uiManager.updateConnectivityDiagnostics(mesh.getForwardingDiagnostics());
-      const bridge = readNearbyOfflineBridge();
-      const scope = this.activeExchangeRoomController?.getScope();
-      if (bridge && scope) bridge.setNearbyExchangeMode?.(settings.nearbyMode, scope.roomId);
-      if (settings.nearbyMode === 'off') {
-        this.nearbyOfflineService?.dispose();
-        this.nearbyOfflineService = null;
-      } else if (!this.nearbyOfflineService) {
-        const pub = this.gunService.getStoredPair()?.pub;
-        if (pub) this.initNearbyOffline(String(pub));
-      }
-      void this.applyNearbyPrivacyMode(settings).catch((error) => {
-        this.uiManager.showNotification(`Could not change nearby audience: ${(error as Error).message}`, 'error');
-      });
-      this.syncNativeBackgroundAgent();
+    registerConnectivityEventHandlers({
+      ui: this.uiManager,
+      pruneContacts: () => this.scheduleContactsPrune(0),
+      applySettings: async (settings) => {
+        const mesh = this.ensurePeerMeshService();
+        mesh?.updateForwardingSettings(settings.forwarding);
+        if (mesh) this.uiManager.updateConnectivityDiagnostics(mesh.getForwardingDiagnostics());
+        const bridge = readNearbyOfflineBridge();
+        const scope = this.activeExchangeRoomController?.getScope();
+        if (bridge && scope) bridge.setNearbyExchangeMode?.(settings.nearbyMode, scope.roomId);
+        if (settings.nearbyMode === 'off') {
+          this.nearbyOfflineService?.dispose();
+          this.nearbyOfflineService = null;
+        } else if (!this.nearbyOfflineService) {
+          const pub = this.gunService.getStoredPair()?.pub;
+          if (pub) this.initNearbyOffline(String(pub));
+        }
+        await this.applyNearbyPrivacyMode(settings);
+        this.syncNativeBackgroundAgent();
+      },
+      setMatchCollection: (enabled) => {
+        setMatchCollectionEnabled(enabled);
+        if (enabled) this.ensureMatchCollectionSession(this.chatroomService.getCurrentChatroomId());
+        else endMatchCollectionSession();
+        this.syncNativeBackgroundAgent();
+      },
     });
 
-    this.uiManager.on('conversationAdded', (data: { conversationId: string }) => {
-      this.refreshStatusBar();
-      this.ensureConversationPreviewSubscription(data.conversationId);
-      void this.refreshConversationPresence();
-      const conversation = this.uiManager.getMyConversations()[data.conversationId];
-      // supportChannel excluded — see getLocalConversationsSnapshot's identical filter above for why.
-      if (conversation && conversation.supportChannel !== true && this.currentUser) {
-        void this.deviceSyncService.enqueueConversationChange(
-          this.currentUser.pub || this.currentUser.id,
-          { ...conversation, conversationId: data.conversationId },
-        ).catch(() => {});
-      }
-    });
-
-    // Spec §30.2 deal confirmation: a match on a deal-eligible (Pair-tag) talk isn't exclusive
-    // on its own (several compatible candidates can each hold an open conversation) — the
-    // talk only disables, and other open candidates get marked "no longer available" on this
-    // device, once BOTH participants have confirmed here.
-    this.uiManager.on('confirmDeal', async (data: { conversationId: string }) => {
-      if (!this.currentUser?.id) return;
-      const conversation = this.uiManager.getMyConversations()[data.conversationId] as any;
-      if (!conversation) return;
-      const dealConfirmedBy = await this.conversationService.confirmDeal(data.conversationId, this.currentUser.id);
-      const mergedConfirmations = this.uiManager.applyDealConfirmedBy(data.conversationId, dealConfirmedBy);
-      this.maybeFinalizeConfirmedDeal(mergedConfirmations, conversation.otherUserId, data.conversationId);
+    registerConversationSessionHandlers({
+      ui: this.uiManager,
+      conversations: this.conversationService,
+      currentUser: () => this.currentUser,
+      onConversationAdded: (conversationId) => {
+        this.refreshStatusBar();
+        this.ensureConversationPreviewSubscription(conversationId);
+        void this.refreshConversationPresence();
+        const conversation = this.uiManager.getMyConversations()[conversationId];
+        if (conversation && conversation.supportChannel !== true && this.currentUser) {
+          void this.deviceSyncService.enqueueConversationChange(
+            this.currentUser.pub || this.currentUser.id,
+            { ...conversation, conversationId },
+          ).catch(() => {});
+        }
+      },
+      confirmDeal: async (conversationId) => {
+        if (!this.currentUser?.id) return;
+        const conversation = this.uiManager.getMyConversations()[conversationId] as any;
+        if (!conversation) return;
+        const confirmedBy = await this.conversationService.confirmDeal(conversationId, this.currentUser.id);
+        const merged = this.uiManager.applyDealConfirmedBy(conversationId, confirmedBy);
+        this.maybeFinalizeConfirmedDeal(merged, conversation.otherUserId, conversationId);
+      },
+      isBlocked: (peerId) => this.resolveBlockStatusEitherWay(peerId),
+      publishMedia: (file, conversationId) => this.publishMediaFileToIpfs(file, conversationId),
+      findOrCreate: (peerId, peerName) => this.findOrCreateDirectConversation(peerId, peerName),
+      ingestSnapshot: (records) => this.ingestConversationRecords(records),
     });
 
     registerProfileEventHandlers({
@@ -8074,605 +8214,82 @@ export class IinPublicApp {
       renderSupportGreeting: () => this.renderSupportGreeting({ notify: false }),
     });
 
-    // Handle "Send Talk" button click on user - now opens conversation if exists
-    this.uiManager.on('sendTalkToUser', async (data: { userId: string }) => {
-      console.log('👤 User clicked:', data.userId);
-
-      // Check if conversation exists with this user
-      const conversations = getMyConversations();
-      const existingEntry = Object.entries(conversations).find(
-        ([, conv]: [string, any]) => conv?.otherUserId === data.userId,
-      );
-
-      if (existingEntry) {
-        const [conversationId] = existingEntry;
-        console.log('💬 Opening existing conversation:', conversationId);
-        this.uiManager.showConversationDetail(conversationId);
-      } else {
-        // No conversation yet - show notification
-        this.uiManager.showNotification(
-          this.uiManager.formatMatchToStartConversation(),
-          'info',
+    registerTalkEventHandlers({
+      ui: this.uiManager,
+      talks: this.talkService,
+      currentUser: () => this.currentUser,
+      authorLocation: () => this.confirmedLocationForTalks(),
+      publishMediaFile: (file, talkId) => this.publishMediaFileToIpfs(file, talkId),
+      pinAttachments: async (talkId, attachments) => {
+        await this.ensureContentNodeInitialized();
+        this.contentNodeService.pinTalkAttachments(talkId, attachments);
+      },
+      broadcastCreated: (talk) => {
+        const roomId = this.chatroomService.getCurrentChatroomId();
+        if (!roomId) return false;
+        const release = this.markTalkBroadcastsInFlight([talk.id]);
+        void (async () => {
+          const receivers = await this.resolveBroadcastReceivers(roomId, this.uiManager.getCurrentChatroomMembers());
+          await this.deliverTalkToReceiversOverMesh(talk.id, talk, receivers);
+        })().catch((error) => {
+          console.warn('Background Talk broadcast failed (Talk remains saved):', error);
+        }).finally(release);
+        return true;
+      },
+      emitLedger: (kind, content) => this.ledgerEmit(kind, content),
+      exchangeCurrentList: () => this.exchangeWithCurrentList(),
+      schedulePublishedExchange: () => {
+        const now = Date.now();
+        if (this.publishExchangeTimer) clearTimeout(this.publishExchangeTimer);
+        else this.publishExchangeFirstAt = now;
+        const delay = Math.min(
+          PUBLISH_EXCHANGE_SETTLE_MS,
+          Math.max(0, this.publishExchangeFirstAt + PUBLISH_EXCHANGE_MAX_WAIT_MS - now),
         );
-      }
-    });
-
-    this.uiManager.on(
-      'createTalk',
-      async (
-        talkData: Partial<Talk> & {
-          selfAnswers?: Array<{ questionId: string; answerId: string }>;
-          mediaFile?: File;
-          // docs/TODO.md §Y1 — set only when the Talk Editor was opened on a copied-but-not-
-          // yet-owned talk and the user made a real content edit. Routes through the same
-          // revise-mints-new-id + originalAuthorId-transfer path §V built for DM shorthand,
-          // instead of an ordinary from-scratch talk.
-          reviseSourceTalk?: Talk;
-        },
-      ) => {
-      try {
-        console.log('📝 Creating talk:', talkData);
-
-        // Optional media: upload the file to IPFS and attach it so the link is auto-shared
-        // to each matcher. Bytes never ride the talk broadcast — only the link does.
-        const { mediaFile, reviseSourceTalk, ...talkFields } = talkData;
-        let ipfsAttachments = talkFields.ipfsAttachments;
-        if (mediaFile) {
-          this.uiManager.showNotification(this.uiManager.formatMediaShareUploading(mediaFile.name), 'info');
-          const pendingTalkId = `talk-media:${this.currentUser!.id}:${Date.now()}`;
-          const attachment = await this.publishMediaFileToIpfs(mediaFile, pendingTalkId);
-          ipfsAttachments = [...(ipfsAttachments ?? []), attachment];
-        }
-
-        // TODO §X: blurred by default (docs/TODO.md) — never the precise coordinate.
-        const authorLocation = this.confirmedLocationForTalks();
-
-        // Create the talk
-        const talk = reviseSourceTalk
-          ? await this.talkService.createTalk({
-              ...buildRevisedTalkDraft(reviseSourceTalk, talkFields.questions ?? [], this.currentUser!.id, {
-                ...(talkFields.title !== undefined ? { title: talkFields.title } : {}),
-                ...(talkFields.type !== undefined ? { type: talkFields.type } : {}),
-                ...(talkFields.language !== undefined ? { language: talkFields.language } : {}),
-                ...(talkFields.tags !== undefined ? { tags: talkFields.tags } : {}),
-                ...(talkFields.isAdult !== undefined ? { isAdult: talkFields.isAdult } : {}),
-                ...(talkFields.expiresAt !== undefined ? { expiresAt: talkFields.expiresAt } : {}),
-                ...(talkFields.locationRadiusMiles !== undefined ? { locationRadiusMiles: talkFields.locationRadiusMiles } : {}),
-                ...(talkFields.matchThreshold !== undefined ? { matchThreshold: talkFields.matchThreshold } : {}),
-                ...(talkFields.collectionImportance !== undefined ? { collectionImportance: talkFields.collectionImportance } : {}),
-              }),
-              ...(ipfsAttachments ? { ipfsAttachments } : {}),
-              ...(authorLocation ? { authorLocation } : {}),
-            })
-          : await this.talkService.createTalk({
-              ...talkFields,
-              ...(ipfsAttachments ? { ipfsAttachments } : {}),
-              authorId: this.currentUser!.id,
-              ...(authorLocation ? { authorLocation } : {}),
-            });
-
-        if (reviseSourceTalk) {
-          this.uiManager.applyTalkRevisionPolicy(reviseSourceTalk.id);
-        }
-
-        if (Array.isArray(talk.ipfsAttachments) && talk.ipfsAttachments.length > 0) {
-          await this.ensureContentNodeInitialized();
-          this.contentNodeService.pinTalkAttachments(talk.id, talk.ipfsAttachments);
-        }
-
-        console.log('✅ Talk created:', talk);
-
-        // Phase E: ledger hook — TALK_CREATED
-        this.ledgerEmit(InteractionKind.TALK_CREATED, {
-          talkId: talk.id,
-          title: talk.title,
-          type: talk.type,
-          language: talk.language,
-        });
-
-        const isPublic = (talkData as { isPublic?: boolean }).isPublic !== false;
-        this.uiManager.saveCreatedTalk(talk, {
-          selfAnswers: talkData.selfAnswers ?? [],
-          isPublic,
-        });
-
-        // Deliver to the current room over mesh — fire-and-forget. deliverTalkToReceiversOverMesh
-        // already treats delivery as eventually-consistent (its own flood/ack retry loop falls
-        // back to an encrypted mailbox for any recipient that doesn't ACK in time — see its own
-        // doc comments), so awaiting it here only meant the "talk created" success notification
-        // sat blocked for however long that retry loop took, up to ~9s+ of pure ack-waiting per
-        // room member before this even reaches the mailbox fallback. The talk is already
-        // genuinely created and saved locally the moment createTalk() above resolved; delivering
-        // it to the room is a background concern, not a precondition for reporting success.
-        // `sendToChatroom: false` (API/script callers) keeps a public Talk from going out at creation;
-        // it is then offered on the next link, list change or edit like any public Talk.
-        const wantSendToChatroom = isPublic && (talkData as { sendToChatroom?: boolean }).sendToChatroom !== false;
-        if (isPublic) this.uiManager.maybeShowPreSendSafetyToast();
-        const chatroomId = this.chatroomService.getCurrentChatroomId();
-        if (chatroomId && wantSendToChatroom) {
-          const releaseInFlight = this.markTalkBroadcastsInFlight([talk.id]);
-          void (async () => {
-            const receivers = await this.resolveBroadcastReceivers(
-              chatroomId,
-              this.uiManager.getCurrentChatroomMembers(),
-            );
-            await this.deliverTalkToReceiversOverMesh(talk.id, talk, receivers);
-            console.log('📢 Talk broadcasted to chatroom:', chatroomId);
-          })().catch((error) => {
-            console.warn('Background talk broadcast failed (non-fatal — talk is already saved):', error);
-          }).finally(releaseInFlight);
-        }
-
-        let createdMode: 'sent' | 'saved-only' | 'needs-room' = 'sent';
-        if (!wantSendToChatroom) {
-          createdMode = 'saved-only';
-        } else if (!chatroomId) {
-          createdMode = 'needs-room';
-        }
-        this.uiManager.showNotification(this.uiManager.formatTalkCreated(createdMode), 'success');
-      } catch (error) {
-        console.error('Failed to create talk:', error);
-        this.uiManager.showNotification(this.uiManager.formatTalkCreateFailed((error as Error).message), 'error');
-      }
-    });
-
-    // docs/TODO.md §V — Auto Linear Capture: a DM capture session just closed (terminator
-    // line, or any non-captured message sent while one was active). Assemble whatever was
-    // gathered into a real Talk — a new draft in the plain DM thread, or an appended question
-    // on the existing talk if this session started inside that talk's thread. Deliberately
-    // starts private (Broadcast Off), so it is not exchanged until the user makes it public (unlike the Talk Editor's `createTalk`
-    // handler above) — FR-TK-7's own wording is "a linear talk draft ... to reuse and
-    // broadcast later," not immediately, and a DM capture has no chatroom context to begin
-    // with.
-    this.uiManager.on(
-      'finalizeCaptureSession',
-      async (data: { conversationId: string; scopeTalkId: string | undefined; lines: string[] }) => {
-        try {
-          const authorLocation = this.confirmedLocationForTalks();
-
-          if (data.scopeTalkId) {
-            // Append case: extend the existing talk's question chain, then mint a new talk
-            // (editing-mints-a-new-id policy) and retire the predecessor per the user's
-            // delete/keep-disabled preference.
-            const oldTalk = await this.talkService.getTalk(data.scopeTalkId);
-            if (!oldTalk) return;
-            const appended = FlowCapture.buildCapturedQuestions(data.lines, oldTalk.questions.length);
-            if (appended.length === 0) return;
-            const mergedQuestions = TalkAutofix.fix({
-              ...oldTalk,
-              questions: [...oldTalk.questions, ...appended],
-            }).talk.questions;
-            const draft = buildRevisedTalkDraft(oldTalk, mergedQuestions, this.currentUser!.id);
-            const newTalk = await this.talkService.createTalk({
-              ...draft,
-              ...(authorLocation ? { authorLocation } : {}),
-            });
-            this.uiManager.saveCreatedTalk(newTalk, { selfAnswers: [], isPublic: false });
-            this.uiManager.applyTalkRevisionPolicy(data.scopeTalkId);
-            this.uiManager.showNotification(this.uiManager.formatCaptureTalkAppended(), 'success');
-          } else {
-            // New-draft case: the plain DM thread.
-            const assembled = FlowCapture.assembleCapturedTalk(data.lines);
-            if (!assembled) return;
-            const newTalk = await this.talkService.createTalk({
-              ...assembled,
-              authorId: this.currentUser!.id,
-              ...(authorLocation ? { authorLocation } : {}),
-            });
-            this.uiManager.saveCreatedTalk(newTalk, { selfAnswers: [], isPublic: false });
-            this.uiManager.showNotification(this.uiManager.formatCaptureTalkCreated(), 'success');
-          }
-        } catch (error) {
-          console.error('Failed to finalize captured talk:', error);
-          this.uiManager.showNotification(this.uiManager.formatTalkCreateFailed((error as Error).message), 'error');
-        }
+        this.publishExchangeTimer = setTimeout(() => {
+          this.publishExchangeTimer = undefined;
+          this.exchangeWithCurrentList();
+        }, delay);
       },
-    );
-
-    this.uiManager.on('matchCollectionSettingChanged', (data: { enabled?: boolean }) => {
-      const enabled = data.enabled === true;
-      setMatchCollectionEnabled(enabled);
-      if (enabled) this.ensureMatchCollectionSession(this.chatroomService.getCurrentChatroomId());
-      else endMatchCollectionSession();
-      this.syncNativeBackgroundAgent();
-    });
-    // Broadcast broadcastable OUT talks: server register + Gun announce (current chatroom only)
-    this.uiManager.on(
-      'broadcastTalk',
-      async (data: {
-        chatroomId: string;
-        members: Array<{ userId: string; stageName: string }>;
-        talkIds?: string[];
-        /** docs/TODO.md §W Gap 1: per-talk narrower receiver list, when the caller has one. */
-        talkReceiverIds?: Record<string, string[]>;
-        broadcastTargetTags?: string[];
-        broadcastMaxDistanceMiles?: number;
-        automatic?: boolean;
-        /** Background catch-up to a newly linked same-room peer: no toasts, no bulk-ack change. */
-        catchUp?: boolean;
-      }) => {
-        let releaseInFlight = (): void => {};
-        const broadcastStartedAt = Date.now();
-        try {
-          const chatroomId = data.chatroomId || this.chatroomService.getCurrentChatroomId();
-          if (!chatroomId || !this.currentUser) {
-            this.uiManager.showNotification(this.uiManager.formatBroadcastNoChatroom(), 'error');
-            return;
-          }
-          const broadcastableIds = Array.isArray(data.talkIds) && data.talkIds.length > 0
-            ? data.talkIds
-            : this.uiManager.getBroadcastableTalkIds();
-          console.log(`📢 broadcastTalk: ${broadcastableIds.length} broadcastable ids, members=${data.members?.length ?? 0}`);
-          if (broadcastableIds.length === 0) {
-            // UI already shows this notification when broadcastableCount === 0; skip duplicate to avoid double toast
-            const receivers = await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
-            this.uiManager.setBroadcastBulkAck(0, receivers.length);
-            return;
-          }
-
-          // No audience confirmation: every broadcast is automatic since the Broadcast button went
-          // (OPEN-112); the confirm dialog was unreachable and is removed (OPEN-112 b).
-          if (!data.catchUp) releaseInFlight = this.markTalkBroadcastsInFlight(broadcastableIds);
-
-          // Immediate feedback before the slow work below (resolving receivers, fetching
-          // talk payloads) — without this, a tap that shows nothing for a few seconds reads
-          // as "nothing happened," and the user taps Broadcast again.
-          if (!data.catchUp) this.uiManager.showNotification(this.uiManager.formatBroadcastInProgress(), 'info');
-
-          // A catch-up is owed only to the peer that just linked; the room roster would re-send the
-          // same Talk to everyone on every reconnect (OPEN-50).
-          const receivers = data.catchUp
-            ? (data.members ?? []).filter((member) =>
-              !!member.userId && member.userId !== this.currentUser!.id && member.userId !== TECHSUPPORT_ROOT_USER_ID)
-            : await this.resolveBroadcastReceivers(chatroomId, data.members ?? []);
-          const activeCollection = this.ensureMatchCollectionSession(chatroomId);
-          const collectionLocation = activeCollection
-            ? await this.matchCollectionSendLocation(chatroomId)
-            : undefined;
-          const peerPoints = activeCollection
-            ? Object.fromEntries(this.nearbyV3?.service.entries().map((entry) => [entry.card.userId, entry.card.point]) ?? [])
-            : undefined;
-          recordMatchCollectionDelivery({
-            talkIds: broadcastableIds,
-            peerIds: receivers.map((receiver) => receiver.userId),
-            ...(data.talkReceiverIds ? { talkReceiverIds: data.talkReceiverIds } : {}),
-            ...(collectionLocation ? { location: collectionLocation } : {}),
-            ...(peerPoints ? { peerPoints } : {}),
-          });
-          this.syncNativeBackgroundAgent();
-          const targetCount = receivers.length;
-          console.log(`📢 broadcastTalk: ${targetCount} receivers resolved`);
-          if (!data.catchUp) this.startNearbyBroadcastProgress(chatroomId, broadcastableIds, targetCount, receivers.map((receiver) => receiver.userId));
-          if (targetCount === 0) {
-            console.warn(
-              '⚠️ broadcastTalk: no receivers resolved (no other active members in this chatroom).',
-            );
-          }
-          let sent = 0;
-          // Resolve all talk payloads first (sync from localStorage, no awaits)
-          const talkPayloads: Array<{ tid: string; talk: Talk }> = [];
-          for (const talkId of broadcastableIds) {
-            // Prefer OUT row fullTalk (localStorage) — Gun getTalk often lags for 20 talks; skipping
-            // register + Gun put for most ids leaves Tom with a single IN cluster (e2e poll sees 1).
-            let talk = this.uiManager.getBroadcastTalkPayload(talkId);
-            if (!talk) {
-              talk = await this.talkService.getTalkWithRetry(talkId, { attempts: 15, gapMs: 100 });
-            }
-            if (!talk) { console.warn(`📢 broadcastTalk: skipping ${talkId} (no talk data)`); continue; }
-            const tid = String(talk.id || talkId);
-            talk = { ...talk, id: tid, authorId: talk.authorId || this.currentUser!.id };
-            if (this.isTalkExpiredForDelivery(talk)) {
-              console.warn(`📢 broadcastTalk: skipping ${talkId} (expired)`);
-              continue;
-            }
-            talkPayloads.push({ tid, talk: talk as Talk });
-          }
-          // Phase 1: offer them together. The device core puts offers to the same person made at
-          // the same time into one log entry (OPEN-114, up to BATCH_MAX_ITEMS), so a first meeting's
-          // catch-up is a few entries, not one per Talk.
-          const REGISTER_BATCH = BATCH_MAX_ITEMS;
-          const registeredTalkIds: string[] = [];
-          /** Talks that went to at least one person now (a repeat catch-up often sends nothing). */
-          const reachedTalkIds = new Set<string>();
-          const broadcastableSnapshot = new Set(broadcastableIds);
-          for (let i = 0; i < talkPayloads.length; i += REGISTER_BATCH) {
-            const batch = talkPayloads.slice(i, i + REGISTER_BATCH);
-            const batchResults = await Promise.all(
-              batch.map(async ({ tid, talk }) => {
-                if (!broadcastableSnapshot.has(tid)) return false;
-                let eligibleIds: string[] | undefined;
-                // docs/TODO.md §W Gap 1: further narrow to receivers who don't already have
-                // this specific talk, when the caller supplied that per-talk information —
-                // fixes the room-wide "any member still needs it" batch re-attempting
-                // delivery to a receiver who already has it.
-                const perTalkReceiverIds = data.talkReceiverIds?.[tid];
-                if (perTalkReceiverIds !== undefined) {
-                  const allowed = new Set(perTalkReceiverIds);
-                  eligibleIds = (eligibleIds ?? receivers.map((r) => r.userId)).filter((id) => allowed.has(id));
-                }
-                const ok = await this.deliverTalkToReceiversOverMesh(
-                  tid,
-                  talk,
-                  receivers,
-                  eligibleIds,
-                  (count) => { if (count > 0) reachedTalkIds.add(tid); },
-                  talkPayloads.length > 1,
-                );
-                if (ok) registeredTalkIds.push(tid);
-                return ok;
-              }),
-            );
-            sent += batchResults.filter(Boolean).length;
-          }
-          // Phase E: ledger hook — TALK_BROADCAST, one event per Talk that reached someone now. Each
-          // event is several encrypted writes; a repeat catch-up that sent nothing wrote them for
-          // every Talk again (five-phone starter tags, 2026-11-21).
-          for (const { tid } of talkPayloads.filter(({ tid }) => reachedTalkIds.has(tid))) {
-            this.ledgerEmit(InteractionKind.TALK_BROADCAST, {
-              talkId: tid,
-              recipientCount: sent,
-              chatroomIds: [chatroomId],
-            });
-          }
-
-          if (data.catchUp) {
-            console.info(`[catch-up] offered ${sent}/${talkPayloads.length} talk(s) to ${targetCount} peer(s) in ${chatroomId} in ${Date.now() - broadcastStartedAt} ms`);
-          } else {
-            this.uiManager.setBroadcastBulkAck(sent, targetCount);
-            this.uiManager.showNotification(this.uiManager.formatBroadcastSent(sent, targetCount), 'success');
-          }
-        } catch (error) {
-          console.error('Broadcast talks failed:', error);
-          this.uiManager.showNotification(this.uiManager.formatBroadcastFailed((error as Error).message), 'error');
-        } finally {
-          releaseInFlight();
-        }
-      },
-    );
-
-    // docs/TODO.md §U — broadcast a single talk to a contact group, online or not. The
-    // group-picker dialog already resolved *who* (client-side only, per-recipient); delivery
-    // reuses the exact same deliverTalkToReceiversOverMesh path every other broadcast already
-    // uses — mesh-flood to whoever's online, mailbox fallback (48h/72h TTL) for the rest —
-    // nothing new to build for the "online or not, deferred, dropped after timeout" half of
-    // the ask (docs/TODO.md §U's own research finding). No chatroomId/eligibleIds narrowing:
-    // the resolved member list already IS the intended recipient set.
-    this.uiManager.on(
-      'broadcastToContactGroup',
-      async (data: { talkId: string; members: Array<{ userId: string; stageName: string }> }) => {
-        try {
-          if (data.members.length === 0) return;
-          let talk = this.uiManager.getBroadcastTalkPayload(data.talkId);
-          if (!talk) {
-            talk = await this.talkService.getTalkWithRetry(data.talkId, { attempts: 15, gapMs: 100 });
-          }
-          if (!talk) {
-            this.uiManager.showNotification(this.uiManager.formatBroadcastFailed('talk not found'), 'error');
-            return;
-          }
-          talk = { ...talk, authorId: talk.authorId || this.currentUser!.id };
-          if (this.isTalkExpiredForDelivery(talk)) {
-            this.uiManager.showNotification(this.uiManager.formatBroadcastFailed('talk expired'), 'error');
-            return;
-          }
-          const ok = await this.deliverTalkToReceiversOverMesh(data.talkId, talk, data.members);
-          if (ok) {
-            this.ledgerEmit(InteractionKind.TALK_BROADCAST, {
-              talkId: data.talkId,
-              recipientCount: data.members.length,
-              chatroomIds: [],
-            });
-          }
-          this.uiManager.showNotification(
-            ok ? this.uiManager.formatBroadcastGroupSent() : this.uiManager.formatBroadcastFailed('delivery failed'),
-            ok ? 'success' : 'error',
-          );
-        } catch (error) {
-          console.error('Broadcast to contact group failed:', error);
-          this.uiManager.showNotification(this.uiManager.formatBroadcastFailed((error as Error).message), 'error');
-        }
-      },
-    );
-
-    this.uiManager.on('updateTalk', async (data: Partial<Talk> & {
-      id: string;
-      title: string;
-      type: string;
-      questions: any[];
-      selfAnswers?: Array<{ questionId: string; answerId: string }>;
-    }) => {
-      try {
-        const updatedTalk = await this.talkService.updateTalk(data.id, {
-          title: data.title,
-          type: data.type as Talk['type'],
-          questions: data.questions,
-          language: data.language || 'en',
-          tags: data.tags || [],
-          ...(data.isAdult !== undefined ? { isAdult: data.isAdult } : {}),
-          ...(data.expiresAt !== undefined ? { expiresAt: data.expiresAt } : {}),
-          ...(data.locationRadiusMiles !== undefined ? { locationRadiusMiles: data.locationRadiusMiles } : {}),
-          ...(data.matchThreshold !== undefined ? { matchThreshold: data.matchThreshold } : {}),
-        });
-        if (Array.isArray(updatedTalk.ipfsAttachments) && updatedTalk.ipfsAttachments.length > 0) {
-          await this.ensureContentNodeInitialized();
-          this.contentNodeService.pinTalkAttachments(updatedTalk.id, updatedTalk.ipfsAttachments);
-        }
-        this.uiManager.saveCreatedTalk(updatedTalk, { selfAnswers: data.selfAnswers ?? [] });
-        this.uiManager.showNotification(this.uiManager.formatTalkUpdated(), 'success');
-        this.uiManager.displayTalksList();
-        // Phase F: emit TALK_SUPERSEDED so peers know this talk was revised.
-        // Since we update in-place (same ID), oldTalkId === newTalkId; the ledger
-        // captures the edit event for chatbot differential answering (REQ-CHATBOT-03).
-        this.ledgerEmit(InteractionKind.TALK_SUPERSEDED, {
-          oldTalkId: data.id,
-          newTalkId: data.id,
-        });
-        // The new version is owed again to everyone on my list.
-        this.exchangeWithCurrentList();
-      } catch (error) {
-        console.error('Failed to update talk:', error);
-        this.uiManager.showNotification(this.uiManager.formatTalkUpdateFailed((error as Error).message), 'error');
-      }
-    });
-
-    // Phase F: TALK_WITHDRAWN — emitted when user deletes or disables a talk (REQ-LEDGER-13)
-    // Grace window default: 24h (configurable via TALK_WITHDRAWN_GRACE_MS env var if available)
-    this.uiManager.on('withdrawTalk', (data: { talkId: string }) => {
-      const gracePeriodMs =
-        (typeof process !== 'undefined' && process.env && Number(process.env['TALK_WITHDRAWN_GRACE_MS']) > 0)
-          ? Number(process.env['TALK_WITHDRAWN_GRACE_MS'])
-          : 24 * 60 * 60 * 1000; // 24 hours default
-      this.ledgerEmit(InteractionKind.TALK_WITHDRAWN, {
-        talkId: data.talkId,
-        gracePeriodMs,
-      });
-    });
-
-    // Step 10: TALK_RETRACTED — hard retraction on delete or tag-uncheck.
-    // Emits the audit-feed event, writes the local tombstone, floods the mesh frame,
-    // and posts mailbox envelopes to all known responders (outcomes + exchanged).
-    // A Talk switched to Broadcast On goes out to my current list at once (OPEN-112).
-    // A run of likes (or Broadcast switches) goes out as one exchange shortly after the last one:
-    // one at a time, everyone's likes flood each other's receiving limit (starter-tags spec).
-    // Someone liking steadily still sends as they go: a run waits at most PUBLISH_EXCHANGE_MAX_WAIT_MS
-    // from its first like, so 30 likes go out as a few batches, not one batch after the last.
-    this.uiManager.on('publishTalk', () => {
-      const now = Date.now();
-      if (this.publishExchangeTimer) clearTimeout(this.publishExchangeTimer);
-      else this.publishExchangeFirstAt = now;
-      const delay = Math.min(PUBLISH_EXCHANGE_SETTLE_MS, Math.max(0, this.publishExchangeFirstAt + PUBLISH_EXCHANGE_MAX_WAIT_MS - now));
-      this.publishExchangeTimer = setTimeout(() => {
-        this.publishExchangeTimer = undefined;
-        this.exchangeWithCurrentList();
-      }, delay);
-    });
-
-    this.uiManager.on('retractTalk', (data: { talkId: string; retractedAt: number }) => {
-      void this.handleRetractTalk(data.talkId, data.retractedAt);
-    });
-
-    this.uiManager.on(
-      'demandFullTalk',
-      async (data: {
-        talkId: string;
-        identityKeyFallback?: string;
-        callback: (fullTalk: any) => void;
-      }) => {
-        try {
-          let talk: Talk | null = null;
-          const id = (data.talkId || '').trim();
-          if (id) talk = await this.resolveMeshTalkData(id);
-          if (!talk && data.identityKeyFallback) {
-            talk = await this.loadFullTalkViaIncomingIdentity(data.identityKeyFallback);
-          }
-          data.callback(talk);
-        } catch (error) {
-          console.error('Failed to get full talk:', error);
-          data.callback(null);
-        }
-      },
-    );
-
-    this.uiManager.on(
-      'demandFullTalkByIdentity',
-      async (data: { identityKey: string; callback: (fullTalk: any) => void }) => {
-        if (!this.currentUser?.id) {
-          data.callback(null);
-          return;
-        }
-        try {
-          const talk = await this.loadFullTalkViaIncomingIdentity(data.identityKey);
-          data.callback(talk);
-        } catch (error) {
-          console.error('demandFullTalkByIdentity failed:', error);
-          data.callback(null);
-        }
-      },
-    );
-
-    this.uiManager.on('loadTalkForEdit', async (data: { talkId: string }) => {
-      try {
-        // My own Talk as I last saved it: the graph's version of an edit is written a moment after
-        // the save, and reading it in between reopened the editor on the old text (stage1/05).
-        const own = getMyTalks()[data.talkId]?.fullTalk;
-        const talk = own && Array.isArray(own.questions) ? { ...own, id: data.talkId } : await this.talkService.getTalk(data.talkId);
-        if (talk) {
-          this.uiManager.showTalkEditorDialog(talk);
-        } else {
-          this.uiManager.showNotification(this.uiManager.formatTalkNotFound(), 'error');
-        }
-      } catch (error) {
-        console.error('Failed to load talk:', error);
-        this.uiManager.showNotification(this.uiManager.formatTalkLoadFailed((error as Error).message), 'error');
-      }
-    });
-
-    this.uiManager.on('needIncomingTalkClusters', () => {
-      void this.refreshIncomingTalkClustersFromLocalGun();
-    });
-
-    // Every redraw of the Talks list asks; reading every Talk's outcomes each time kept a phone's
-    // core busy during an exchange (2026-11-21). Requests during a read share one more read.
-    const talkStatsIds = new Set<string>();
-    const readTalkStats = coalesced(async () => {
-      const talkIds = [...talkStatsIds];
-      talkStatsIds.clear();
-      await this.applyTalkStats(talkIds);
-    }, 1_500);
-    this.uiManager.on('needTalkStats', (data: { talkIds: string[] }) => {
-      if (data.talkIds.length === 0) {
-        talkStatsIds.clear();
-        this.uiManager.setTalkStats({});
-        this.uiManager.displayTalksList();
-        return;
-      }
-      for (const talkId of data.talkIds) talkStatsIds.add(talkId);
-      void readTalkStats();
-    });
-
-    this.uiManager.on(
-      'talkCompleted',
-      async (data: { talkId: string; localTalkId?: string; answers: any[]; talkData?: any; isChatbotResponse?: boolean }) => {
-        // One at a time, but the author's key is fetched before joining the line
-        // (talk-completion-pipeline.ts; gui-responsiveness-audit.md F7).
+      retractTalk: (talkId, retractedAt) => this.handleRetractTalk(talkId, retractedAt),
+      resolveFullTalk: (talkId) => this.resolveMeshTalkData(talkId),
+      loadFullTalkByIdentity: (identityKey) => this.loadFullTalkViaIncomingIdentity(identityKey),
+      refreshIncoming: () => this.refreshIncomingTalkClustersFromLocalGun(),
+      applyStats: (talkIds) => this.applyTalkStats(talkIds),
+      completeTalk: async (data) => {
         const authorId = String(data.talkData?.authorId || '');
         const keyReady = authorId && authorId !== this.currentUser?.id && !data.isChatbotResponse
           ? this.resolvePeerEpub(authorId, firstKeyHint(data.talkData?.authorEpub, data.talkData?.senderEpub))
           : Promise.resolve();
-        const completion = this.talkCompletions.submit(String(data.talkId || ''), keyReady, (release) => this.handleTalkCompleted(data, release));
+        const completion = this.talkCompletions.submit(
+          String(data.talkId || ''),
+          keyReady,
+          (release) => this.handleTalkCompleted(data, release),
+        );
         (globalThis as any).__iinpublic_lastTalkCompletion = completion;
-        try {
-          await completion;
-          this.syncNativeBackgroundAgent();
-        } catch (error) {
-          console.error('Failed to handle talk completion:', error);
-        }
+        await completion;
       },
+      syncBackgroundAgent: () => this.syncNativeBackgroundAgent(),
+    });
+
+    this.uiManager.on(
+      'broadcastTalk',
+      (data: {
+        chatroomId: string;
+        members: Array<{ userId: string; stageName: string }>;
+        talkIds?: string[];
+        talkReceiverIds?: Record<string, string[]>;
+        broadcastTargetTags?: string[];
+        broadcastMaxDistanceMiles?: number;
+        automatic?: boolean;
+        catchUp?: boolean;
+      }) => this.talkBroadcastEffects.broadcastRoom(data),
     );
 
     this.uiManager.on(
-      'answerQuestion',
-      async (data: { conversationId: string; questionId: string; answerId: string }) => {
-        try {
-          const result = await this.talkService.processAnswer(
-            data.conversationId,
-            data.questionId,
-            data.answerId,
-            this.currentUser!.id,
-          );
-
-          this.uiManager.updateConversation(data.conversationId, result);
-
-          if (result.isComplete) {
-            this.uiManager.showTalkCompletion(data.conversationId, result.outcome);
-          }
-        } catch (error) {
-          this.uiManager.showNotification(
-            this.uiManager.formatAnswerProcessFailed((error as Error).message),
-            'error',
-          );
-        }
-      },
+      'broadcastToContactGroup',
+      (data: { talkId: string; members: Array<{ userId: string; stageName: string }> }) =>
+        this.talkBroadcastEffects.broadcastGroup(data),
     );
 
     registerMessagingEventHandlers({
@@ -8681,14 +8298,9 @@ export class IinPublicApp {
       placeChat: this.placeChatClient,
       conversations: this.conversationService,
       currentUser: () => this.currentUser,
-      graphMessages: async (conversationId) => {
-        if (!this.coreRequest || !this.currentUser?.id) return [];
-        return this.coreRequest({
-          name: 'graph.conversationMessages',
-          conversationId,
-          limit: 200,
-        }) as Promise<GraphConversationMessage[]>;
-      },
+      graphMessages: (conversationId) => this.currentUser?.id
+        ? this.deviceGraphHost.conversationMessages(conversationId)
+        : Promise.resolve([]),
       recordSupportMessages: (conversationId, otherUserId, messages) =>
         this.recordConversationMessagesInGraph(conversationId, otherUserId, messages),
       fetchSharedAttachment: (payload, senderId) =>
@@ -8701,507 +8313,79 @@ export class IinPublicApp {
       ),
     });
 
-    // docs/TODO.md K5, design note §Item 5 — the TechSupport-inbox answer control (only ever
-    // rendered inside a TechSupport-root session, ui-manager.ts's renderSettingsView).
-    this.uiManager.on(
-      'answerSupportQuestion',
-      async (data: { questionKey: string; question: string; answer: string; conversationId: string; askedBy: string }) => {
-        try {
-          await this.handleAnswerSupportQuestion(data);
-        } catch (error) {
-          console.error('Failed to answer support question:', error);
-          this.uiManager.showNotification(
-            this.uiManager.formatMessageSendFailed((error as Error).message),
-            'error',
-          );
-        }
+    registerTechSupportInboxHandlers({
+      ui: this.uiManager,
+      answer: (input) => this.handleAnswerSupportQuestion(input),
+    });
+    registerTechSupportDelegateHandlers({
+      ui: this.uiManager,
+      issue: (input) => this.handleIssueTechSupportDelegate(input),
+      revoke: (delegatePub) => this.handleRevokeTechSupportDelegate(delegatePub),
+      toggleOptIn: (nextOptedIn) => this.handleToggleTechSupportDelegateOptIn(nextOptedIn),
+      createInvite: () => this.handleCreateTechSupportDelegateInvite(),
+      submitInviteCode: (code) => this.handleSubmitTechSupportDelegateRequest(code),
+      previewInviteTarget: (userId) => this.previewTargetedDelegateInviteTarget(userId),
+      sendTargetedInvite: (userId) => this.handleSendTargetedDelegateInvite(userId),
+      respondToTargetedInvite: (accept) => this.handleRespondToTargetedDelegateInvite(accept),
+    });
+
+    registerRoomEventHandlers({
+      ui: this.uiManager,
+      chatrooms: this.chatroomService,
+      session: this.roomSessionEffects,
+      contactsOnlyRoomId: CONTACTS_ONLY_SCOPE_ID,
+      currentUser: () => this.currentUser,
+      state: () => this.roomSessionState(),
+      commitState: (state) => this.commitRoomSessionState(state),
+      persistRoom: (roomId) => settingsStorage.setItem('iinpublic_last_chatroom', roomId),
+      persistTravel: () => this.persistTravelModeStateToStorage(),
+      subscribeRoom: (roomId) => this.subscribeRoomSession(roomId),
+      activateRoom: (roomId) => this.activateRoomExchange(roomId),
+      isLocalOnly: isLocalOnlyRoomScope,
+      refreshNearbyPoint: () => this.refreshNearbyPoint(),
+      syncBackgroundAgent: () => this.syncNativeBackgroundAgent(),
+      resolveHomeRoom: () => this.resolveAutomaticNearbyRoom(),
+      updateLocation: () => this.updateLocationAndMaybeSwitch(),
+      locationConfirmed: () => this.locationConfirmed,
+      locationText: (kind) => this.uiText(kind === 'refreshing' ? 'locationRefreshing' : 'locationRefreshed'),
+      requestLocationPermission: async () => {
+        const bridge = (window as unknown as {
+          IinPublicNearby?: { requestLocationPermission?: () => void };
+        }).IinPublicNearby;
+        if (typeof bridge?.requestLocationPermission === 'function') bridge.requestLocationPermission();
+        else await this.updateLocationAndMaybeSwitch();
+        if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser);
       },
-    );
-
-    // docs/TODO.md K7 — master's Delegates panel: issue/revoke a co-operator grant.
-    this.uiManager.on(
-      'issueTechSupportDelegate',
-      async (data: { delegateUserId: string; label: string; ttlDays: number }) => {
-        try {
-          await this.handleIssueTechSupportDelegate(data);
-        } catch (error) {
-          console.error('Failed to issue TechSupport delegate grant:', error);
-          this.uiManager.showNotification(this.uiManager.formatMessageSendFailed((error as Error).message), 'error');
-        }
+      onLocationGranted: async () => {
+        try { this.applyRealGpsFix(await readDeviceLocation()); }
+        catch { this.handleGpsFixUnavailable(); }
+        finally { if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser); }
       },
-    );
-    this.uiManager.on('revokeTechSupportDelegate', async (delegatePub: string) => {
-      try {
-        await this.handleRevokeTechSupportDelegate(delegatePub);
-      } catch (error) {
-        console.error('Failed to revoke TechSupport delegate grant:', error);
-        this.uiManager.showNotification(this.uiManager.formatMessageSendFailed((error as Error).message), 'error');
-      }
-    });
-    // docs/TODO.md K7 — an eligible ordinary user's own opt-in toggle in the Me tab.
-    this.uiManager.on('toggleTechSupportDelegateOptIn', (nextOptedIn: boolean) => {
-      void this.handleToggleTechSupportDelegateOptIn(nextOptedIn);
-    });
-
-    // Share a link to any media file in a DM: upload the bytes to IPFS and send only the
-    // link (an IPFS_SHARE card), never the raw bytes over the DM channel.
-    this.uiManager.on(
-      'shareConversationMedia',
-      async (data: { conversationId: string; file: File }) => {
-        try {
-          if (!this.currentUser) throw new Error('Not logged in');
-          const conversation = this.uiManager.getMyConversations()[data.conversationId];
-          const otherUserId = conversation?.otherUserId ? String(conversation.otherUserId) : undefined;
-          // Courtesy/efficiency check (the real enforcement boundary is receive-side, see
-          // maybeFetchSharedAttachmentBytes/ingestAttachmentShareFromMailbox) — don't even
-          // upload to IPFS for a peer we already know is blocked either-way.
-          if (otherUserId && await this.resolveBlockStatusEitherWay(otherUserId)) {
-            this.uiManager.showNotification(this.uiManager.formatMediaShareBlockedRecipient(), 'error');
-            return;
-          }
-          this.uiManager.showNotification(this.uiManager.formatMediaShareUploading(data.file.name), 'info');
-          const attachment = await this.publishMediaFileToIpfs(data.file, data.conversationId);
-          const payload: AttachmentShareMessagePayload = {
-            kind: 'ipfs-auto-share-v1',
-            conversationId: data.conversationId,
-            talkId: `dm-media:${data.conversationId}`,
-            authorId: this.currentUser.id,
-            cid: attachment.cid,
-            link: `ipfs://${attachment.cid}`,
-            name: attachment.name,
-            mimeType: attachment.mimeType,
-            sizeBytes: attachment.sizeBytes,
-            enc: attachment.enc,
-            keyCiphertext: 'public',
-            sharedAt: new Date().toISOString(),
-          };
-          await this.conversationService.sendMessage(
-            data.conversationId,
-            this.currentUser.id,
-            formatAttachmentShareMessageText(payload),
-            {
-              messageId: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-              ...(otherUserId ? { otherUserId } : {}),
-            },
-          );
-        } catch (error) {
-          console.error('Failed to share media link:', error);
-          this.uiManager.showNotification(
-            this.uiManager.formatMessageSendFailed((error as Error).message),
-            'error',
-          );
-        }
-      },
-    );
-
-    // Direct message from peer detail overlay — find or create a conversation then send
-    this.uiManager.on(
-      'sendDirectMessage',
-      async (data: { peerId: string; peerName: string; text: string; resolve: () => void; reject: (e: unknown) => void }) => {
-        try {
-          if (!this.currentUser) throw new Error('Not logged in');
-          const conversationId = await this.findOrCreateDirectConversation(data.peerId, data.peerName);
-          await this.conversationService.sendMessage(conversationId, this.currentUser.id, data.text, {
-            otherUserId: data.peerId,
-          });
-          data.resolve();
-        } catch (error) {
-          console.error('Failed to send direct message:', error);
-          this.uiManager.showNotification(this.uiManager.formatMessageSendFailed((error as Error).message), 'error');
-          data.reject(error);
-        }
-      },
-    );
-
-    // Conversation-first user click (rule N2a): resolve the peer's default DM
-    // conversation, creating it on first contact.
-    this.uiManager.on(
-      'openDirectConversation',
-      async (data: { peerId: string; peerName: string; resolve: (id: string) => void; reject: (e: unknown) => void }) => {
-        try {
-          if (!this.currentUser) throw new Error('Not logged in');
-          data.resolve(await this.findOrCreateDirectConversation(data.peerId, data.peerName));
-        } catch (error) {
-          console.warn('openDirectConversation failed:', error);
-          data.reject(error);
-        }
-      },
-    );
-
-    this.uiManager.on('needConversationSync', async () => {
-      if (!this.currentUser) return;
-      try {
-        const snapshot = await this.conversationService.getUserConversationsSnapshot(this.currentUser.id);
-        await this.ingestConversationRecords(snapshot);
-      } catch (error) {
-        console.warn('Conversation sync snapshot failed:', error);
-      }
-    });
-
-    // Settings → Refresh Location: say it started, and say how it ended — it used to show nothing
-    // for seconds, and nothing at all when the room did not change (gui-responsiveness-audit.md F11).
-    this.uiManager.on('requestLocationUpdate', async () => {
-      this.uiManager.showNotification(this.uiText('locationRefreshing'), 'info');
-      const roomBefore = this.currentChatroomId;
-      try {
-        await this.updateLocationAndMaybeSwitch();
-      } catch {
-        return; // updateLocationAndMaybeSwitch already showed the failure
-      }
-      if (this.locationConfirmed && !this.travelModeActive && this.currentChatroomId === roomBefore) {
-        this.uiManager.showNotification(this.uiText('locationRefreshed'), 'success');
-      }
-    });
-    // Android: the location sheet (first launch, or "Use my location") was answered with a grant.
-    window.addEventListener('iinpublic-location-granted', () => {
-      void readDeviceLocation()
-        .then((fix) => this.applyRealGpsFix(fix))
-        .catch(() => this.handleGpsFixUnavailable())
-        .finally(() => { if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser); });
-    });
-    // OPEN-54: Settings → "Use my location". The Android shell asks the OS again (or opens the
-    // app's settings once Android stops showing the dialog); a browser re-asks through geolocation.
-    this.uiManager.on('requestLocationPermission', async () => {
-      const bridge = (window as unknown as { IinPublicNearby?: { requestLocationPermission?: () => void } }).IinPublicNearby;
-      if (typeof bridge?.requestLocationPermission === 'function') {
-        bridge.requestLocationPermission();
-        return;
-      }
-      await this.updateLocationAndMaybeSwitch();
-      if (this.currentUser) this.uiManager.refreshSettingsViewIfActive(this.currentUser);
-    });
-
-    // §3.7 "Meeting new people in groups": swap the whole group for the next one, or go back.
-    this.uiManager.on('nearbyMeetNewPeople', () => {
-      void this.nearbyV3?.service.meetNewPeople().catch((error: unknown) => console.warn('Meet new people failed:', error));
-    });
-    this.uiManager.on('nearbyBackToFirstGroup', () => {
-      void this.nearbyV3?.service.backToFirstGroup().catch((error: unknown) => console.warn('Back to group 1 failed:', error));
-    });
-
-    this.uiManager.on('travelNearbyAtPoint', (point: { latitude: number; longitude: number }) => {
-      const latitude = Number(point?.latitude);
-      const longitude = Number(point?.longitude);
-      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90
-        || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return;
-      this.beginNearbyTravel(
+      meetNewPeople: async () => { await this.nearbyV3?.service.meetNewPeople(); },
+      backToFirstGroup: async () => { await this.nearbyV3?.service.backToFirstGroup(); },
+      beginNearbyTravel: ({ latitude, longitude }) => this.beginNearbyTravel(
         { latitude, longitude, accuracy: 0, timestamp: new Date() },
         'map-point',
         'Selected map point',
-      );
-    });
-
-    this.uiManager.on('returnHomeFromTravel', async () => {
-      if (!this.currentUser) return;
-      const home = await this.resolveAutomaticNearbyRoom();
-      this.travelModeActive = false;
-      this.travelChatroomId = undefined;
-      this.travelNearbyPoint = undefined;
-      this.pendingNearbyTravel = undefined;
-      this.travelHomeChatroomId = home;
-      this.persistTravelModeStateToStorage();
-      this.uiManager.setTravelModeState({ active: false });
-      this.refreshNearbyPoint();
-      if (this.currentChatroomId !== home) {
-        await this.chatroomService.switchChatroom(this.currentUser.id, home, this.currentUser.stageName);
-        this.currentChatroomId = home;
-        settingsStorage.setItem('iinpublic_last_chatroom', home);
-        this.subscribeToMessages(home);
-        this.uiManager.setCurrentChatroomId(home);
-        this.chatroomService.subscribeToMembers(home, (members) => {
-          this.harvestRosterEpubs(members);
-          this.observeNearbyRoomRoster(home, members);
-          this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
-          // Like every other room switch: without it the mesh stayed in the Place, so Nearby
-          // (personal mode) never came back and the list never searched again (native-app/38).
-          this.syncPeerMeshRoom(home, members);
-          const chatroomName = this.getChatroomDisplayName(home);
-          this.uiManager.updateStatusBar(
-            this.currentUser!.stageName,
-            chatroomName,
-            this.countRoomMembers(members),
-            this.uiManager.getTotalMatches(),
-          );
-        });
-        if (!isLocalOnlyRoomScope(home)) await this.activateRoomExchange(home);
-      }
-      this.uiManager.showNotification(this.uiManager.formatTravelReturnedHome(), 'success');
-      this.chatroomService.announceMembershipNow();
-    });
-
-    this.uiManager.on(
-      'createCustomChatroom',
-      async (payload: {
-        type: 'business' | 'custom';
-        name: string;
-        description?: string;
-        businessInfo?: { headline?: string };
-      }) => {
-        if (!this.currentUser) return;
-        // Custom rooms are local: anchored to the creator's blurred ~1 km cell (confirmed GPS only).
-        if (!this.locationConfirmed || !this.currentLocation) {
-          this.uiManager.showNotification(this.uiManager.formatChatroomCreateFailed('location required'), 'error');
-          return;
-        }
-        const anchorCell = LocationPrivacy.blurLocation(this.currentLocation).region;
-        const anchor = parseAnchorCell(anchorCell);
-        const pair = this.gunService.getStoredPair();
-        if (!anchor || !pair?.pub || !pair?.priv) {
-          this.uiManager.showNotification(this.uiManager.formatChatroomCreateFailed('signing identity unavailable'), 'error');
-          return;
-        }
-        const base = this.getBackendApiBase();
-        try {
-          const descriptor = await createSignedPlaceDescriptor({
-            name: payload.name,
-            placeType: payload.type,
-            ...(payload.description != null ? { description: payload.description } : {}),
-            location: { latitude: anchor.latitude, longitude: anchor.longitude },
-            pair,
-          });
-          const res = await fetchWithTimeout(`${base}/api/chatrooms`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: payload.name,
-              type: payload.type,
-              createdBy: this.currentUser.id,
-              anchorCell,
-              descriptor,
-              ...(payload.description != null ? { description: payload.description } : {}),
-              ...(payload.businessInfo != null ? { businessInfo: payload.businessInfo } : {}),
-            }),
-          }, 10_000);
-          const text = await res.text();
-          let created: {
-            id?: string;
-            name?: string;
-            type?: string;
-            description?: string;
-            createdBy?: string;
-            createdAt?: string;
-            businessInfo?: { headline?: string };
-            location?: { latitude: number; longitude: number };
-          } | null = null;
-          if (text) {
-            try {
-              created = JSON.parse(text) as {
-                id?: string;
-                name?: string;
-                type?: string;
-                description?: string;
-                createdBy?: string;
-                createdAt?: string;
-                businessInfo?: { headline?: string };
-                location?: { latitude: number; longitude: number };
-              };
-            } catch {
-              created = null;
-            }
-          }
-          if (!res.ok) {
-            this.showPlaceCreateRefusal(res.status, text);
-            return;
-          }
-          const createdId = String(created?.id || '').trim();
-          if (createdId) {
-            this.uiManager.upsertCustomChatroomFromServer({
-              id: createdId,
-              name: String(created?.name || payload.name),
-              type: created?.type === 'business' ? 'business' : 'custom',
-              description: String(created?.description || payload.description || ''),
-              createdBy: String(created?.createdBy || this.currentUser.id),
-              ...(created?.createdAt != null ? { createdAt: created.createdAt } : {}),
-              ...(created?.businessInfo != null || payload.businessInfo != null
-                ? { businessInfo: created?.businessInfo ?? payload.businessInfo! }
-                : {}),
-              ...(created?.location != null ? { location: created.location } : {}),
-            });
-            this.uiManager.showChatroomDetail(createdId);
-          }
-          void this.refreshCustomChatroomsFromServer().then(() => {
-            this.subscribeToAllChatroomMemberCounts();
-          });
-          this.uiManager.showNotification(this.uiManager.formatChatroomCreated(created?.name || payload.name), 'success');
-        } catch (e) {
-          this.uiManager.showNotification(this.uiManager.formatChatroomCreateFailed((e as Error).message), 'error');
-        }
+      ),
+      createCustomRoom: (payload) => this.createCustomRoom(payload),
+      notifySwitchFailed: (user) => {
+        const language = getUiLanguagePreference(uiLanguageFromProfile(user.languages));
+        this.uiManager.showNotification(uiText(language, 'chatroomSwitchFailed'), 'warning');
       },
-    );
-
-    this.uiManager.on('chatroomChanged', async (requestedChatroomId: string) => {
-      if (!this.currentUser) {
-        return;
-      }
-      const nearbyTravelRequest = this.pendingNearbyTravel && isNearbyRoomId(requestedChatroomId)
-        ? this.pendingNearbyTravel
-        : undefined;
-      const chatroomId = requestedChatroomId;
-      // Contacts only is a fallback, never a room a tap enters (OPEN-53): a click on the row
-      // rendered before Nearby resolved must not pull the user back out of their real room.
-      if (chatroomId === CONTACTS_ONLY_SCOPE_ID
-        && this.currentChatroomId
-        && this.currentChatroomId !== CONTACTS_ONLY_SCOPE_ID) {
-        this.uiManager.showChatroomDetail(this.currentChatroomId);
-        return;
-      }
-      const previousChatroomId = this.currentChatroomId;
-      const isSameRoom = previousChatroomId === chatroomId;
-
-      if (!isSameRoom) {
-        try {
-          if (this.currentChatroomId) {
-            console.log(`🔄 User switching from chatroom ${this.currentChatroomId} to ${chatroomId}`);
-
-            await this.chatroomService.switchChatroom(
-              this.currentUser.id,
-              chatroomId,
-              this.currentUser.stageName,
-            );
-          } else {
-            // App lost track of room (race / fresh UI) while user opened a room — align service with UI.
-            const svcId = this.chatroomService.getCurrentChatroomId();
-            if (svcId && svcId !== chatroomId) {
-              await this.chatroomService.switchChatroom(
-                this.currentUser.id,
-                chatroomId,
-                this.currentUser.stageName,
-              );
-            } else if (!svcId) {
-              await this.chatroomService.joinChatroom(
-                chatroomId,
-                this.currentUser.id,
-                this.currentUser.stageName,
-              );
-            }
-          }
-        } catch (error) {
-          if (previousChatroomId) this.uiManager.setCurrentChatroomId(previousChatroomId);
-          const language = getUiLanguagePreference(uiLanguageFromProfile(this.currentUser.languages));
-          this.uiManager.showNotification(uiText(language, 'chatroomSwitchFailed'), 'warning');
-          if (nearbyTravelRequest) this.pendingNearbyTravel = undefined;
-          console.warn(`Chatroom switch to ${chatroomId} was rejected:`, error);
-          return;
-        }
-
-        this.currentChatroomId = chatroomId;
-        settingsStorage.setItem('iinpublic_last_chatroom', chatroomId);
-
-        this.subscribeToMessages(chatroomId);
-            console.log(`✅ Switched to ${chatroomId}`);
-        // Switching rooms changes the audience only. Existing Talks never follow the user or
-        // auto-send to newcomers; broadcasting in the new room is always a deliberate action.
-      } else {
-        // Same room: ensure app id matches (e.g. first time opening detail after join)
-        this.currentChatroomId = chatroomId;
-      }
-
-      this.uiManager.setCurrentChatroomId(chatroomId);
-      // A deliberate Place or Nearby-at-a-pin selection is travel; Nearby at my own point is
-      // home. Commit only after the switch succeeds, so a rejected destination cannot leave
-      // navigation or the Return-to-Nearby target pointing at a false room.
-      const continuingNearbyTravel = this.travelModeActive && this.travelNearbyPoint != null && isNearbyRoomId(chatroomId);
-      if (nearbyTravelRequest || continuingNearbyTravel) {
-        if (!this.travelModeActive && previousChatroomId && !isPlaceRoomId(previousChatroomId)) {
-          this.travelHomeChatroomId = previousChatroomId;
-        }
-        this.travelModeActive = true;
-        this.travelChatroomId = chatroomId;
-        if (nearbyTravelRequest) {
-          this.travelNearbyPoint = {
-            ...nearbyTravelRequest.location,
-            placeId: nearbyTravelRequest.placeId,
-            placeName: nearbyTravelRequest.placeName,
-          };
-        }
-        this.pendingNearbyTravel = undefined;
-      } else if (isPlaceRoomId(chatroomId)) {
-        if (!this.travelModeActive && previousChatroomId && !isPlaceRoomId(previousChatroomId)) {
-          this.travelHomeChatroomId = previousChatroomId;
-        }
-        this.travelModeActive = true;
-        this.travelChatroomId = chatroomId;
-        this.travelNearbyPoint = undefined;
-      } else {
-        this.travelModeActive = false;
-        this.travelHomeChatroomId = chatroomId;
-        this.travelChatroomId = undefined;
-        this.travelNearbyPoint = undefined;
-      }
-      this.persistTravelModeStateToStorage();
-      this.uiManager.setTravelModeState({
-        active: this.travelModeActive,
-        ...(this.travelHomeChatroomId ? { homeChatroomId: this.travelHomeChatroomId } : {}),
-      });
-      this.refreshNearbyPoint();
-
-      // subscribeToMembers reuses the Gun listener when chatroomId is unchanged (see WebChatroomService)
-      this.chatroomService.subscribeToMembers(chatroomId, (members) => {
-        this.harvestRosterEpubs(members);
-        this.observeNearbyRoomRoster(chatroomId, members);
-        this.uiManager.updateChatroomMembers(members, this.currentUser!.id);
-        this.syncPeerMeshRoom(chatroomId, members);
-        const chatroomName = this.getChatroomDisplayName(chatroomId);
-        this.uiManager.updateStatusBar(
-          this.currentUser!.stageName,
-          chatroomName,
-          this.countRoomMembers(members),
-          this.uiManager.getTotalMatches(),
-        );
-      });
-      // A fresh install starts in the local Contacts-only scope, so no active-room controller
-      // exists yet. The first manual Place/Nearby move must create and start the exchange runtime;
-      // otherwise the UI and server roster show the new room while presence, mailbox scoping,
-      // LAN discovery, and Wi-Fi Direct remain silently bound to no public room.
-      if (!isLocalOnlyRoomScope(chatroomId)) await this.activateRoomExchange(chatroomId);
-      this.syncNativeBackgroundAgent();
     });
 
-    // Handle Gun.js real-time updates
-    this.gunService.on('newMessage', (message: any) => {
-      this.uiManager.displayNewMessage(message);
-    });
-
-    this.gunService.on('newTalk', (conversation: any) => {
-      this.uiManager.displayIncomingTalk(conversation);
-    });
-
-    this.gunService.on('chatroomUpdate', (update: any) => {
-      this.uiManager.updateChatroomInfo(update);
-    });
-
-    // Handle visibility changes (for offline/online status). Android's Activity lifecycle also
-    // dispatches `iinpublic-native-resume`: several WebViews do not emit visibilitychange after
-    // HOME even though onResume ran, which otherwise leaves stale WebRTC sessions untouched.
-    let lastForegroundRecoveryAt = 0;
-    let foregroundRecoveryRunning = false;
-    let foregroundRecoveryQueued = false;
-    let foregroundRecoveryScheduled = false;
-    const recoverAfterForeground = () => {
-      if (!this.currentUser) return;
-      if (foregroundRecoveryRunning) {
-        foregroundRecoveryQueued = true;
-        return;
-      }
-      const now = Date.now();
-      if (now - lastForegroundRecoveryAt < 500) {
-        foregroundRecoveryQueued = true;
-        return;
-      }
-      lastForegroundRecoveryAt = now;
-      foregroundRecoveryRunning = true;
-      try {
+    registerGunUiForwarding(this.gunService, this.uiManager);
+    new HostLifecycleHandlers({
+      hasSession: () => Boolean(this.currentUser),
+      recoverForeground: () => {
+        if (!this.currentUser) return;
         this.userService.setUserStatus(this.currentUser.id, 'online');
         const settings = loadConnectivitySettings();
         if (settings.nearbyMode === 'while-open' && !this.nearbyOfflineService) {
           const pub = this.gunService.getStoredPair()?.pub;
           if (pub) this.initNearbyOffline(String(pub));
         }
-        // Android can freeze a background WebView while its WebRTC objects still report
-        // "connected". Rebuild only the bounded room transports on foreground and drain any
-        // encrypted fallback that accumulated meanwhile. Without this, an author's durable
-        // direct-Talk outbox can keep retrying a stale session indefinitely after the receiver
-        // returns, even though both phones still show the same room.
         if (this.currentChatroomId && !isLocalOnlyRoomScope(this.currentChatroomId)) {
           void this.peerMeshService?.resumeRoomConnections().catch((error) => {
             console.warn('Could not refresh room connections after foregrounding:', error);
@@ -9210,73 +8394,33 @@ export class IinPublicApp {
           this.chatroomService.pullMembersFromPeers(this.currentChatroomId);
         }
         void this.drainMailbox().catch(() => {});
-            this.syncNativeBackgroundAgent();
-        void this.replayNativeBackgroundEvents();
-      } finally {
-        foregroundRecoveryRunning = false;
-        if (foregroundRecoveryQueued) {
-          foregroundRecoveryQueued = false;
-          queueMicrotask(() => recoverAfterForeground());
-        }
-      }
-    };
-    const scheduleForegroundRecovery = () => {
-      if (foregroundRecoveryScheduled) return;
-      foregroundRecoveryScheduled = true;
-      const run = () => {
-        foregroundRecoveryScheduled = false;
-        recoverAfterForeground();
-      };
-      // Android can dispatch onResume while the WebView is painting its restored screen.
-      // Let navigation taps paint before local policy preparation and transport refresh.
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => window.setTimeout(run, 0));
-      } else {
-        window.setTimeout(run, 0);
-      }
-    };
-    window.addEventListener('iinpublic-native-resume', scheduleForegroundRecovery);
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) {
         this.syncNativeBackgroundAgent();
-        this.userService.setUserStatus(this.currentUser!.id, 'away');
+        void this.replayNativeBackgroundEvents();
+      },
+      enterBackground: () => {
+        if (!this.currentUser) return;
+        this.syncNativeBackgroundAgent();
+        this.userService.setUserStatus(this.currentUser.id, 'away');
         if (loadConnectivitySettings().nearbyMode === 'while-open') {
           this.nearbyOfflineService?.dispose();
           this.nearbyOfflineService = null;
         }
-      } else {
-        scheduleForegroundRecovery();
-      }
-    });
-
-    // Handle beforeunload to cleanup
-    window.addEventListener('beforeunload', () => {
-      // A protected identity must not remain reachable from service references during a
-      // normal navigation/close boundary. JavaScript cannot await unload work reliably,
-      // but lockIdentityNow clears the pair and direct Gun authentication synchronously
-      // before its best-effort worker logout. Only do this when an identity password is
-      // actually configured: beforeunload can fire without the page truly being torn down
-      // (bfcache restores, some browsers' speculative unload timing) and unconditionally
-      // nulling out the ordinary (non-password-protected) identity's in-memory SEA pair on
-      // every such event — with nothing re-establishing it afterward — left the app running
-      // with no keypair and every send failing with "No SEA keypair — call
-      // ensureKeypairAndAuth first" until an actual full reload.
-      if (this.gunService.isIdentityPasswordActive()) {
-        void this.gunService.lockIdentityNow();
-      }
-      if (this.mailboxPollTimer) clearInterval(this.mailboxPollTimer);
-      this.mailboxPollTimer = undefined;
-      if (this.deviceSyncTimer) clearInterval(this.deviceSyncTimer);
-      this.deviceSyncTimer = undefined;
-      this.peerMeshService?.leaveRoom();
-      if (this.currentUser && this.currentChatroomId) {
-        // Mark user as inactive in current chatroom (for member count)
-        this.chatroomService.leaveChatroom(this.currentChatroomId, this.currentUser.id);
-        // Set user status to offline
-        this.userService.setUserStatus(this.currentUser.id, 'offline');
-      }
-    });
+      },
+      beforeUnload: () => {
+        if (this.gunService.isIdentityPasswordActive()) void this.gunService.lockIdentityNow();
+        if (this.mailboxPollTimer) clearInterval(this.mailboxPollTimer);
+        this.mailboxPollTimer = undefined;
+        if (this.deviceSyncTimer) clearInterval(this.deviceSyncTimer);
+        this.deviceSyncTimer = undefined;
+        this.peerMeshService?.leaveRoom();
+        if (this.currentUser && this.currentChatroomId) {
+          this.chatroomService.leaveChatroom(this.currentChatroomId, this.currentUser.id);
+          this.userService.setUserStatus(this.currentUser.id, 'offline');
+        }
+      },
+    }).register();
   }
+
 
   // Public methods for UI interaction
   public getCurrentUser(): User | undefined {
